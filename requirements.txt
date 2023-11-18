@@ -1,0 +1,6 @@
+opencv-python==4.8.1.78
+cmake==3.27.7
+wheel
+boost==0.1
+dlib==19.24.2
+imutils==0.5.4
