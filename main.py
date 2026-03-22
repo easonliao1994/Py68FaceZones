@@ -62,6 +62,36 @@ def draw_path_to_img(control_points, img):
             P3 = control_points[i + 3]
             draw_cubic_bezier(img, P0, P1, P2, P3, color=(0, 255, 0), thickness=2)
 
+def get_bezier_path_points(control_points):
+    """收集貝塞爾路徑上的所有點，用於建立多邊形遮罩"""
+    path_points = []
+    for i in range(0, len(control_points) - 3, 4):
+        P0 = control_points[i]
+        P1 = control_points[i + 1]
+        P2 = control_points[i + 2]
+        P3 = control_points[i + 3]
+        for t in np.linspace(0, 1, num=100):
+            path_points.append(cubic_bezier(P0, P1, P2, P3, t))
+    return path_points
+
+def extract_zone(img, control_points):
+    """依據控制點定義的封閉區域，擷取並回傳裁切後的影像"""
+    path_points = get_bezier_path_points(control_points)
+    pts = np.array(path_points, dtype=np.int32)
+
+    # 建立與原圖相同大小的遮罩
+    mask = np.zeros(img.shape[:2], dtype=np.uint8)
+    cv2.fillPoly(mask, [pts], 255)
+
+    # 套用遮罩，區域外設為白色
+    result = np.full_like(img, 255)
+    result[mask == 255] = img[mask == 255]
+
+    # 裁切至區域的邊界框
+    x, y, w, h = cv2.boundingRect(pts)
+    cropped = result[y:y+h, x:x+w]
+    return cropped
+
 def get_adjusted_landmarks(method, landmarks):
     arr_points = []
     if method == 'left':
@@ -107,7 +137,7 @@ def main():
     try:
         img = load_image(file_name)
         img_left = load_image(file_name)
-        img_right = load_image(file_name)
+        img_base = load_image(file_name)
 
         faces = detect_faces(img)
         if len(faces) == 0:
@@ -119,12 +149,22 @@ def main():
             draw_landmarks(img, landmarks)
             save_image(img, f'{file_name}_landmarks')
 
+            left_control_points = get_adjusted_landmarks('left', landmarks)
+            right_control_points = get_adjusted_landmarks('right', landmarks)
+
             # Draw the left cheek area.
-            draw_path_to_img(get_adjusted_landmarks('left', landmarks), img_left)
+            draw_path_to_img(left_control_points, img_left)
 
             # Draw the right cheek area onto the left cheek area.
-            draw_path_to_img(get_adjusted_landmarks('right', landmarks), img_left)
+            draw_path_to_img(right_control_points, img_left)
             save_image(img_left, f'{file_name}_full')
+
+            # Extract and save each cheek zone as a separate image.
+            left_zone = extract_zone(img_base, left_control_points)
+            save_image(left_zone, f'{file_name}_left_zone')
+
+            right_zone = extract_zone(img_base, right_control_points)
+            save_image(right_zone, f'{file_name}_right_zone')
     except Exception as e:
         print(e)
 
